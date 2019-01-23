@@ -1,109 +1,301 @@
 import 'package:flutter/material.dart';
+import 'dart:ui' as ui;
+import 'dart:io';
+import 'dart:typed_data';
+import 'package:flutter/gestures.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter/rendering.dart';
+import 'package:simple_permissions/simple_permissions.dart';
 
 void main() => runApp(new MyApp());
 
 class MyApp extends StatelessWidget {
-  // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
     return new MaterialApp(
-      title: 'Flutter Demo',
+      title: "Generated App",
       theme: new ThemeData(
-        // This is the theme of your application.
-        //
-        // Try running your application with "flutter run". You'll see the
-        // application has a blue toolbar. Then, without quitting the app, try
-        // changing the primarySwatch below to Colors.green and then invoke
-        // "hot reload" (press "r" in the console where you ran "flutter run",
-        // or press Run > Flutter Hot Reload in IntelliJ). Notice that the
-        // counter didn't reset back to zero; the application is not restarted.
-        primarySwatch: Colors.blue,
+        primarySwatch: Colors.pink,
+        primaryColor: const Color(0xFFe91e63),
+        accentColor: const Color(0xFFe91e63),
+        canvasColor: const Color(0xFFfafafa),
       ),
-      home: new MyHomePage(title: 'Flutter Demo Home Page'),
+      home: new MyImagePage(),
     );
   }
 }
 
-class MyHomePage extends StatefulWidget {
-  MyHomePage({Key key, this.title}) : super(key: key);
-
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
-
-  final String title;
+// 画面を構成するウィジェット類、FAB/Drawerの処理など、グラフィックの描画以外の処理をまかなうクラス
+class MyImagePage extends StatefulWidget {
 
   @override
-  _MyHomePageState createState() => new _MyHomePageState();
+  _MyImagePageState createState() => new _MyImagePageState();
 }
 
-class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
+class _MyImagePageState extends State<MyImagePage> {
 
-  void _incrementCounter() {
-    setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
-    });
+  File image;
+  GlobalKey _homeStateKey = GlobalKey();
+  List<List<Offset>> strokes = new List<List<Offset>>();
+  MyPainter _painter;
+  ui.Image targetImage;
+  Size mediasize;
+
+  double _r = 255.0;
+  double _g = 0.0;
+  double _b = 0.0;
+
+  _MyImagePageState() {
+    requestPermissions();
+  }
+
+  // パーミッションの設定
+  void requestPermissions() async {
+    // simple_permissionsパッケージのSimplePermissionsを利用
+    // 許可されている場合には自動的に出さないようになっているっぽい
+    // カメラと外部ストレージの保存のパーミッション
+    await SimplePermissions.requestPermission(
+      Permission.Camera);
+    await SimplePermissions.requestPermission(
+      Permission.WriteExternalStorage);
   }
 
   @override
   Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
-    return new Scaffold(
-      appBar: new AppBar(
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
-        title: new Text(widget.title),
+    mediasize = MediaQuery.of(context).size;
+    return Scaffold(
+      appBar: AppBar(
+        title: Text("Canture Image Drawing!"),
       ),
-      body: new Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
-        child: new Column(
-          // Column is also layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Invoke "debug paint" (press "p" in the console where you ran
-          // "flutter run", or select "Toggle Debug Paint" from the Flutter tool
-          // window in IntelliJ) to see the wireframe for each widget.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            new Text(
-              'You have pushed the button this many times:',
-            ),
-            new Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.display1,
-            ),
-          ],
+
+      body: Listener(
+        // タップ処理のためにListenerウィジェットを使用
+        onPointerDown: _pointerDown,
+        onPointerMove: _pointerMove,
+        child: Container(
+          child: CustomPaint(
+            key: _homeStateKey,
+            painter: _painter,
+            child: ConstrainedBox(
+                constraints: BoxConstraints.expand()),
+          ),
         ),
       ),
-      floatingActionButton: new FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: new Icon(Icons.add),
-      ), // This trailing comma makes auto-formatting nicer for build methods.
+
+      // メンバに撮影した画像を保持して、それに応じたFABアイコンを表示する
+      floatingActionButton: image == null
+        ? FloatingActionButton(
+          onPressed: getImage,
+          tooltip: "take a picture!",
+          child: Icon(Icons.add_a_photo))
+        : FloatingActionButton(
+          onPressed: saveImage,
+          tooltip: "Save Image",
+          child: Icon(Icons.save),
+      ),
+      drawer: Drawer(
+        child: Center(
+          child: Column(
+            children: <Widget>[
+              Padding(
+                padding: EdgeInsets.all(10.0),
+                child: Text("Set Color...",
+                  style: TextStyle(fontSize: 20.0),),
+              ),
+
+              Padding (
+                padding: EdgeInsets.all(10.0),
+                // スライダーを0~255で設定する
+                // valueはメンバを入れる
+                // タップされたらsetState()でメンバを更新してUIアップデート
+                child: Slider(min: 0.0, max: 255.0, value: _r,
+                  onChanged: sliderR,),
+              ),
+
+              Padding(
+                padding: EdgeInsets.all(10.0),
+                child: Slider(min: 0.0, max: 255.0, value: _g,
+                  onChanged: sliderG,),
+              ),
+
+              Padding(
+                padding: EdgeInsets.all(10.0),
+                child: Slider(min: 0.0, max: 255.0, value: _b,
+                  onChanged: sliderB,),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
+  }
+
+  void sliderR(double value) {
+    setState(() {
+      _r = value;
+    });
+  }
+
+  void sliderG(double value) {
+    setState(() {
+      _g = value;
+    });
+  }
+
+  void sliderB(double value) {
+    setState(() {
+      _b = value;
+    });
+  }
+
+  // MyPointerの作成
+  void createMyPointer() {
+    // RGB値を使ってインスタンス生成
+    var strokeColor = Color.fromARGB(200, _r.toInt(), _g.toInt(), _b.toInt());
+    _painter = MyPainter(targetImage, image, strokes, mediasize, strokeColor);
+  }
+
+  // カメラを起動しイメージを読み込む
+  void getImage() async {
+    // カメラを起動してそのイメージファイルを取得する
+    // image_pickerパッケージのpickImage()を使用
+    File file = await ImagePicker.pickImage(source: ImageSource.camera);
+    image = file;
+    // 画像の読み込み
+    loadImage(image.path);
+  }
+
+  // イメージの保存
+  void saveImage() {
+    // 実際の保存処理はMyPainter側で行なっている
+    _painter.saveImage();
+    showDialog(context: context, builder: (BuildContext context) => AlertDialog(
+      title: Text("Saved!"),
+      content: Text("save image to file."),
+    ));
+  }
+
+  // パスからイメージを読み込みui.Imageを作成する
+  // FileクラスからImageを取り出す
+  void loadImage(path) async {
+    // バイトデータをint配列として取り出す
+    List<int> byts = await image.readAsBytes();
+    // リストをUint8Listクラスに変換する
+    Uint8List u8lst = Uint8List.fromList(byts);
+    // instantiateImageCodecでui.Imageを取り出す
+    ui.instantiateImageCodec(u8lst).then((codec) {
+      codec.getNextFrame().then(
+          (frameInfo) {
+            targetImage = frameInfo.image;
+            setState(() {
+              createMyPointer();
+            });
+          }
+      );
+    });
+  }
+
+  // タップした時の処理
+  void _pointerDown(PointerDownEvent event) {
+    RenderBox referenceBox = _homeStateKey.currentContext.findRenderObject();
+    strokes.add([referenceBox.globalToLocal(event.position)]);
+
+    setState(() {
+      createMyPointer();
+    });
+  }
+
+  // ドラッグ中の処理
+  void _pointerMove(PointerMoveEvent event) {
+    // renderBoxを取得
+    RenderBox referenceBox = _homeStateKey.currentContext.findRenderObject();
+    // event.positionでイベント発生箇所をstrokeに追加
+    strokes.last.add(referenceBox.globalToLocal(event.position));
+
+    setState(() {
+      // _painterを更新してウィジェットアップデート
+      createMyPointer();
+    });
+  }
+}
+
+// ペインタークラス
+// 描画処理、イメージの保存処理などをまかなうクラス
+class MyPainter extends CustomPainter {
+  File image;
+  ui.Image targetImage;
+  // 画像サイズのSize
+  Size mediasize;
+  // 描画の色
+  Color strokecolor;
+  // タップ情報がまとめられたリスト
+  var strokes = new List<List<Offset>>();
+
+  // コンストラクタ
+  MyPainter(this.targetImage, this.image, this.strokes, this.mediasize, this.strokecolor);
+
+  @override
+  //
+  void paint(Canvas canvas, Size size) {
+    mediasize = size;
+    ui.Image im = drawToCanvas();
+    canvas.drawImage(im, Offset(0.0, 0.0), Paint());
+  }
+
+  @override
+  bool shouldRepaint(CustomPainter oldDelegate) => true;
+
+  // 描画イメージをファイルに保存する
+  void saveImage() async {
+    ui.Image img = drawToCanvas();
+
+    // pngファイルのbytedataを取得
+    final ByteData bytedata = await img.toByteData(
+      format: ui.ImageByteFormat.png);
+    // 現在のタイムスタンプの値を取得
+    int epoch = new DateTime.now().millisecondsSinceEpoch;
+    // タイムスタンプを名前としたFileを生成する
+    final file = new File(image.parent.path + "/" + epoch.toString() + ".png");
+    // データを書き出す
+    file.writeAsBytes(bytedata.buffer.asUint8List());
+  }
+
+  // イメージを描画したui.Imageを返す
+  // PictureRecorderクラスを使い、あらたに用意したCanvasに描いていく
+  // 完成したイメージをui.Imageとして返す役割
+  ui.Image drawToCanvas() {
+    // 文字通りのグラフィックの描画を記録するためのPictureRecorderクラス
+    ui.PictureRecorder recorder = ui.PictureRecorder();
+    // 作成されたCanvasの描画処理がrecorderに記録されていく
+    ui.Canvas canvas = Canvas(recorder);
+
+    Paint p1 = Paint();
+    p1.color = Colors.white;
+    canvas.drawColor(Colors.white, BlendMode.color);
+
+    if (targetImage != null) {
+      Rect r1 = Rect.fromPoints(Offset(0.0, 0.0),
+          Offset(targetImage.width.toDouble(), targetImage.height.toDouble()));
+
+      Rect r2 = Rect.fromPoints(Offset(0.0, 0.0),
+          Offset(mediasize.width, mediasize.height));
+
+      Paint p2 = new Paint();
+      p2.color = strokecolor;
+      p2.style = PaintingStyle.stroke;
+      p2.strokeWidth = 5.0;
+
+      for (var stroke in strokes) {
+        Path strokePath = new Path();
+        strokePath.addPolygon(stroke, false);
+        canvas.drawPath(strokePath, p2);
+      }
+
+      // 描画処理の記録を終了して記録されたPictureクラスを取得
+      ui.Picture picture = recorder.endRecording();
+      // ui.Imageクラスに変換してreturn
+      return picture.toImage(mediasize.width.toInt(), mediasize.height.toInt());
+    }
   }
 }
